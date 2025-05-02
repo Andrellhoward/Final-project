@@ -1,0 +1,651 @@
+---
+title: "STAT540 - Project 3 - Option 1"
+author: "Andrell Howard"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r packages, echo = TRUE, message = FALSE}
+# load the packages for graphing tree and data wrangling
+# install.packages("partykit") 
+#install.packages("rpart")
+# uncomment to install package as necessary
+library(mdsr)
+library(tidyverse)
+library(discrim)
+library(kknn)
+library(dplyr)
+library(tidyr)
+library(partykit)
+library(parsnip)
+library(rpart)
+```
+
+# Project Objectives?
+
+Study the Diabetes status of people as recorded in the NHANES data using **supervised machine** learning algorithms. Decision tree classifier is built as a base model to compare with at least **two** (**2**) more classifiers.
+
+## Load the Data
+
+### Motivation: Example: **National Health and Nutrition Examination Survey (NHANES)**
+
+A researcher wants to study the risk factors of diabetes in patients. She has available data from the `NHANES` survey data from 2009-2012.
+
+**Some history:** This is survey data collected by the US National Center for Health Statistics (NCHS) which has conducted a series of health and nutrition surveys since the early 1960's. Since 1999 approximately 5,000 individuals of all ages are interviewed in their homes every year and complete the health examination component of the survey. The health examination is conducted in a mobile examination centre (MEC).
+
+`NHANES` data include `75` variables available for the `2009-2010` and `2011-2012` sample years. NHANESraw has 20,293 observations of these variables plus four additional variables that describe that sample weighting scheme employed. `NHANES` can be treated, for educational purposes, as if it were a **simple random sample** from the American population (the target population).
+
+A full list of the variables can be reviewed for each year survey at [NHANES survey](https://wwwn.cdc.gov/nchs/nhanes/default.aspx)
+
+For full survey data refer to [NHANES CDC.gov](https://wwwn.cdc.gov/nchs/nhanes/Default.aspx)
+
+Look at some records of data for only four variables: `Gender`,`Age`,`BMI`,`Diabetes`
+
+```{r}
+
+#library(NHANES)
+load("NHANES.Rdata")
+
+
+head(NHANES[30:40,c("Gender","Age","BMI","Diabetes")], 10)
+```
+
+> Let us select one patient with **`ID=207`** who has diabetes for illustration purposes later on, use the variables `Age`, `Gender`, `Diabetes`, `BMI`, `HHIncome`, `PhysActive`.
+
+Note the `Age` and `BMI`.
+
+```{r single_out_a_patient}
+patient7 <- NHANES[207, c("Age", "Gender", "Diabetes", "BMI", "HHIncome", "PhysActive")]
+
+patient7
+
+```
+
+Glimpse at the full data:
+
+```{r}
+head(NHANES,6)
+```
+
+Briefly describe the data set.
+
+**Answer:**
+##The dataset consists of the first 6 patients in the data displaying all the variables in the dataset.
+
+## Part 1 (5 pts)
+
+Define a subset from the `NHANES` data for the variable `Age`, `Gender`, `Diabetes`, `BMI`, `HHIncome`, `PhysActive` called `people` by dropping the `NA` value
+
+**Solution**:
+
+```{r}
+# complete the code
+#install.packages("NHANES")
+library(NHANES)
+people <- NHANES %>%
+  dplyr::select(Age, Gender, Diabetes, BMI, HHIncome, PhysActive) %>% 
+  drop_na()
+glimpse(people)
+
+
+```
+
+How many observations are in the data set?
+
+**Answer:**
+##The dataset contains 7,555 observations.
+Each observation represents an individual with associated data for:
+Age
+Gender
+Diabetes status
+BMI
+Household income
+Physical activity status
+
+## Part 2 (5 pts)
+
+Let us write code to see how many people present in the data have diabetes. Create a variable `pcn` and store the result in a date frame object named `DiabetesFreq`.
+
+Hint: Use group_by() function on `Diabetes` variable and then `count()`.
+
+**Solution**:
+
+```{r}
+DiabetesFreq <- people %>%
+  group_by(Diabetes) %>%
+  count() %>%
+  mutate(pct = n / nrow(people))
+
+DiabetesFreq
+```
+
+We see around 9% of the people in the sample have diabetes.
+
+## Part 3 (5 pts)
+
+Build a decision tree classifier using all of the variables except for `HHIncome` (household income).
+
+**Solution**:
+
+```{r}
+library(rpart)
+library(parsnip)
+
+mod_diabetes <- decision_tree(mode = "classification") %>%
+  set_engine(
+    "rpart", 
+    control = rpart.control(cp = 0.005, minbucket = 30)
+  ) %>%
+  fit(Diabetes ~ Age + BMI + Gender + PhysActive, data = people)
+
+
+mod_diabetes # model saved in this variable
+```
+
+## Part 4 (5 pts)
+
+Plot the fitted tree model from **part 3)**.
+
+**Solution**:
+
+```{r}
+library(partykit)
+plot(as.party(mod_diabetes$fit))
+
+```
+
+If someone is 52 or younger, then it is likely that they do not have diabetes. However, if someone is 53 or older, risk is higher. If BMI is above 40---indicating obesity---then the risk increases again. Strangely---and this may be an evidence of overfitting---the risk is highest if you are between 61 and 67 years old.
+
+## Part 5 (5 pts)
+
+The graph below is a nice way to visualize a complex model. It has plotted our data in two quantitative dimensions (`Age` and `BMI` which are nodes in the decision tree model) while using color to represent our binary response variable (`Diabetes`).
+
+The decision tree simply partitions this two-dimensional space into axis-parallel rectangles. The model makes the same prediction for all observations within each rectangle. It is not hard to imagine---although it is hard to draw---how this recursive partitioning will scale to higher dimensions.
+
+This graph is a clear illustration of the strengths and weaknesses of models based on recursive partitioning. These types of models can only produce axis-parallel rectangles in which all points in each rectangle receive the same prediction. This makes these models relatively easy to understand and apply, but it is not hard to imagine a situation in which they might perform miserably (e.g., what if the relationship was non-linear?).
+
+**Solution**:
+
+```{r}
+
+segments <- tribble(
+  ~Age, ~xend, ~BMI, ~yend,
+  52.5, 100, 39.985, 39.985, 
+  67.5, 67.5, 39.985, Inf, 
+  60.5, 60.5, 39.985, Inf
+)
+
+ggplot(data = people, aes(x = Age, y = BMI)) + 
+  geom_count(aes(color = Diabetes), alpha = 0.5) + 
+  geom_vline(xintercept = 52.5) + 
+  geom_segment(
+    data = segments, 
+    aes(xend = xend, yend = yend)
+  ) +
+  scale_fill_gradient(low = "white", high = "red") + 
+  scale_color_manual(values = c("gold", "black")) +
+  annotate(
+    "rect", fill = "blue", alpha = 0.1,
+    xmin = 60.5, xmax = 67.5, ymin = 39.985, ymax = Inf
+  )
+
+
+```
+
+## Part 6 (5 pts)
+
+Run the code to produce the confusion matrix for the decision tree model saved in `mod_diabetes`. Use the entire data `people` as a test set. Note that this is not very good practice as the tree model was trained on it and it should perform fairly well.
+
+**Solution**:
+
+```{r}
+library(yardstick)
+library(dplyr)
+
+pred <- people %>%
+  dplyr::select(Diabetes) %>%
+  bind_cols(
+    predict(mod_diabetes, new_data = people, type = "class")
+  ) %>%
+  rename(Diabetes_dtree = .pred_class)
+
+confusion <- pred %>%
+  conf_mat(truth = Diabetes, estimate = Diabetes_dtree)
+
+confusion
+
+
+
+```
+
+Discuss the output. What are the True Positive (TP), True Negative (TN), False Positive (FP), and False Negative (FN).
+
+**Answer:**
+#The output presented is a confusion matrix that summarizes the performance of a classification algorithm and  It includes the following key values:
+TP = 32
+TN = 6862
+FP = 652
+FN = 9
+#These values are crucial for calculating performance metrics such as accuracy, precision, recall, and F1-score, which help evaluate the effectiveness of the classification model.
+
+## Part 7 (5 pts)
+
+The code below will produce the accuracy of the decision tree model from **part 6)**.
+
+```{r}
+accuracy(pred, Diabetes, Diabetes_dtree)
+```
+
+## Part 8 (5 pts)
+
+Let us predict the Diabetes status for our singled out patient with ID=7 stored in `patient7`
+
+**Solution**:
+
+
+```{r}
+new_x <- patient7
+
+# using the derived tree model saved in the object model: mod_diabetes
+predict(object = mod_diabetes, new_data = new_x, type = "class")
+
+```
+
+Was the prediction correct? Discuss, again, the tree model based on the graph from **part 5)**
+##The actual data shows that patient 7 has diabetes implying that the prediction was not correct.
+#The plot displays two distinct groups:
+Yellow Dots represent individuals without diabetes.
+Dark Dots indicate those with diabetes.
+The separation between the two classes in the scatter plot reflects the model's effectiveness. A clear distinction suggests strong predictive capability, while overlaps may indicate areas of uncertainty.
+
+## Task 2 & 3
+
+Use at least **two** supervised machine learning algorithms, e.g. **`knn`**, **`Naive Bayes`**, or `logistic regression` to predict `Diabetes` status by training a model and assessing its predictive ability.
+
+### (10 pts) Create Training and Test data sets (80/20 split) from the `people` data.
+
+Based on the needs for the supervised learning algorithms wrangle the date and/or mutate variables.
+
+Allocate a sample of near `80%` of the rows to the `training` data set, with the remaining `20%` set aside as the `testing` (or "hold-out") data set.
+
+```{r split_data_set}
+#  Load necessary packages
+library(caret)
+library(e1071)   # Naive Bayes
+library(class)   # KNN
+
+# Load your data
+# people <- read.csv("people.csv")
+
+# Inspect and clean the Diabetes column
+people$Diabetes <- trimws(as.character(people$Diabetes))  # Remove spaces
+
+# Only keep rows with valid values
+people <- people[people$Diabetes %in% c("Yes", "No", "1", "0"), ]
+
+# Convert to factor
+people$Diabetes <- as.factor(people$Diabetes)
+
+#  Remove rows with missing values
+people <- na.omit(people)
+
+# Confirm target column is clean
+stopifnot(is.factor(people$Diabetes))
+stopifnot(!anyNA(people$Diabetes))
+
+#  Split into train (80%) and test (20%) sets
+set.seed(123)
+split_index <- createDataPartition(people$Diabetes, p = 0.8, list = FALSE)
+train_data <- people[split_index, ]
+test_data  <- people[-split_index, ]
+
+#  Preprocess (center + scale predictor columns only)
+predictor_cols <- setdiff(names(people), "Diabetes")
+
+pre_proc <- preProcess(train_data[, predictor_cols], method = c("center", "scale"))
+train_scaled <- predict(pre_proc, train_data[, predictor_cols])
+test_scaled  <- predict(pre_proc, test_data[, predictor_cols])
+
+
+#  Naive Bayes model
+nb_model <- naiveBayes(Diabetes ~ ., data = train_data)
+nb_pred <- predict(nb_model, test_data)
+
+#  Evaluate Naive Bayes
+cat("\n Naive Bayes Results:\n")
+nb_conf <- confusionMatrix(nb_pred, test_data$Diabetes)
+print(nb_conf)
+
+
+
+
+
+```
+
+What percentage of the sample has diabetes? What is the accuracy of the *null model?
+```{r}
+#  Proportion of people with diabetes ("Yes")
+prop_diabetes <- mean(people$Diabetes == "Yes") * 100
+cat(" Percentage with Diabetes:", round(prop_diabetes, 2), "%\n")
+
+#  Null model accuracy = proportion of majority class
+null_accuracy <- max(mean(people$Diabetes == "Yes"),
+                     mean(people$Diabetes == "No")) * 100
+cat(" Null Model Accuracy:", round(null_accuracy, 2), "%\n")
+
+```
+
+### (5 pts) Define one model via formula object in `R` for the `Diabetes` outcome variable.
+
+**Note:** May experiment and make adjustments to the selections later in order to improve the model(s) predictive abilities.
+
+```{r model form}
+
+# form <- as.formula(
+#   "Diabetes ~ ... "
+# )
+# 
+# form
+```
+
+### (20 pts) K-Nearest Neighbors
+
+Apply `KNN` for the `people` data predict the Diabetes status
+
+```{r}
+
+#  Load necessary libraries
+library(kknn)
+library(caret)
+library(dplyr)
+
+#  Clean the 'Diabetes' column
+people$Diabetes <- trimws(as.character(people$Diabetes))
+people <- people[people$Diabetes %in% c("Yes", "No", "1", "0"), ]
+people$Diabetes <- ifelse(people$Diabetes %in% c("Yes", "1"), "Yes", "No")
+people$Diabetes <- factor(people$Diabetes, levels = c("No", "Yes"))
+
+#  Remove rows with missing values
+people <- na.omit(people)
+
+# Create Train-Test Split (80% train, 20% test)
+set.seed(123)
+split_index <- createDataPartition(people$Diabetes, p = 0.8, list = FALSE)
+train_data <- people[split_index, ]
+test_data <- people[-split_index, ]
+
+#  Get predictor columns
+predictor_cols <- setdiff(names(people), "Diabetes")
+
+#  Convert categorical predictors to numeric
+encode_categorical <- function(df) {
+  df[] <- lapply(df, function(x) {
+    if (is.factor(x) || is.character(x)) {
+      x <- as.factor(x)
+      as.numeric(x)
+    } else {
+      x
+    }
+  })
+  return(df)
+}
+train_data[predictor_cols] <- encode_categorical(train_data[predictor_cols])
+test_data[predictor_cols] <- encode_categorical(test_data[predictor_cols])
+
+#  Remove zero-variance predictors
+nzv <- nearZeroVar(train_data[predictor_cols], saveMetrics = TRUE)
+predictor_cols <- rownames(nzv)[!nzv$zeroVar]
+train_data <- train_data[, c(predictor_cols, "Diabetes")]
+test_data <- test_data[, c(predictor_cols, "Diabetes")]
+
+#  Scale the predictors
+pre_proc <- preProcess(train_data[, predictor_cols], method = c("center", "scale"))
+train_scaled <- predict(pre_proc, train_data[, predictor_cols])
+test_scaled <- predict(pre_proc, test_data[, predictor_cols])
+
+#  Ensure test data has more than one row
+if (nrow(test_scaled) <= 1) {
+  stop("Test dataset must contain more than one observation.")
+}
+
+#  Train KNN model using kknn
+knn_model <- kknn(Diabetes ~ ., 
+                  train = cbind(train_scaled, Diabetes = train_data$Diabetes),
+                  test = test_scaled,
+                  k = 5,
+                  distance = 2,   # Adjust distance metric
+                  kernel = "rectangular")  # Kernel adjustment
+
+#  Make predictions
+knn_pred <- fitted(knn_model)
+
+# Evaluate model performance
+conf_matrix <- confusionMatrix(knn_pred, test_data$Diabetes)
+
+# Print confusion matrix
+print(conf_matrix)
+
+
+
+
+```
+
+#### (5 pts) Accuracy is
+
+```{r}
+#  Load necessary libraries
+library(kknn)
+library(caret)
+library(dplyr)
+
+#  Clean the 'Diabetes' column
+people$Diabetes <- trimws(as.character(people$Diabetes))
+people <- people[people$Diabetes %in% c("Yes", "No", "1", "0"), ]
+people$Diabetes <- ifelse(people$Diabetes %in% c("Yes", "1"), "Yes", "No")
+people$Diabetes <- factor(people$Diabetes, levels = c("No", "Yes"))
+
+# Remove rows with missing values
+people <- na.omit(people)
+
+# Create Train-Test Split (80% train, 20% test)
+set.seed(123)
+split_index <- createDataPartition(people$Diabetes, p = 0.8, list = FALSE)
+train_data <- people[split_index, ]
+test_data <- people[-split_index, ]
+
+# Get predictor columns
+predictor_cols <- setdiff(names(people), "Diabetes")
+
+#  Convert categorical predictors to numeric
+encode_categorical <- function(df) {
+  df[] <- lapply(df, function(x) {
+    if (is.factor(x) || is.character(x)) {
+      x <- as.factor(x)
+      as.numeric(x)
+    } else {
+      x
+    }
+  })
+  return(df)
+}
+train_data[predictor_cols] <- encode_categorical(train_data[predictor_cols])
+test_data[predictor_cols] <- encode_categorical(test_data[predictor_cols])
+
+#  Remove zero-variance predictors
+nzv <- nearZeroVar(train_data[predictor_cols], saveMetrics = TRUE)
+predictor_cols <- rownames(nzv)[!nzv$zeroVar]
+train_data <- train_data[, c(predictor_cols, "Diabetes")]
+test_data <- test_data[, c(predictor_cols, "Diabetes")]
+
+#  Scale the predictors
+pre_proc <- preProcess(train_data[, predictor_cols], method = c("center", "scale"))
+train_scaled <- predict(pre_proc, train_data[, predictor_cols])
+test_scaled <- predict(pre_proc, test_data[, predictor_cols])
+
+#  Ensure test data has more than one row
+if (nrow(test_scaled) <= 1) {
+  stop("Test dataset must contain more than one observation.")
+}
+
+#  Train KNN model using kknn
+knn_model <- kknn(Diabetes ~ ., 
+                  train = cbind(train_scaled, Diabetes = train_data$Diabetes),
+                  test = test_scaled,
+                  k = 5,
+                  distance = 2,   # Adjust distance metric
+                  kernel = "rectangular")  # Kernel adjustment
+
+#  Make predictions
+knn_pred <- fitted(knn_model)
+
+# Evaluate model performance
+conf_matrix <- confusionMatrix(knn_pred, test_data$Diabetes)
+
+# Print confusion matrix
+print(conf_matrix)
+
+#  Calculate accuracy manually
+accuracy <- sum(knn_pred == test_data$Diabetes) / length(knn_pred)
+cat("Accuracy: ", accuracy, "\n")
+
+
+```
+
+### (20 pts) Naive Bayes Classifier
+
+Apply `Naive Bayes classifier` for the `people` data to predict the Diabetes status
+
+```{r}
+# Load required libraries
+library(e1071)   # For Naive Bayes
+library(caret)   # For data splitting and evaluation
+library(dplyr)
+
+#  Clean the 'Diabetes' column
+people$Diabetes <- trimws(as.character(people$Diabetes))
+people <- people[people$Diabetes %in% c("Yes", "No", "1", "0"), ]
+people$Diabetes <- ifelse(people$Diabetes %in% c("Yes", "1"), "Yes", "No")
+people$Diabetes <- factor(people$Diabetes, levels = c("No", "Yes"))
+
+# Remove rows with missing values
+people <- na.omit(people)
+
+#  Split data (80% training, 20% testing)
+set.seed(123)
+split_index <- createDataPartition(people$Diabetes, p = 0.8, list = FALSE)
+train_data <- people[split_index, ]
+test_data <- people[-split_index, ]
+
+# Prepare data
+# Ensure predictors are factors or numeric
+encode_categorical <- function(df) {
+  df[] <- lapply(df, function(x) {
+    if (is.character(x)) {
+      x <- as.factor(x)
+    } else {
+      x
+    }
+  })
+  return(df)
+}
+
+predictor_cols <- setdiff(names(people), "Diabetes")
+train_data[predictor_cols] <- encode_categorical(train_data[predictor_cols])
+test_data[predictor_cols]  <- encode_categorical(test_data[predictor_cols])
+
+# Train Naive Bayes Model
+nb_model <- naiveBayes(Diabetes ~ ., data = train_data)
+
+#  Make predictions
+nb_pred <- predict(nb_model, test_data)
+
+#Evaluate model performance
+conf_matrix <- confusionMatrix(nb_pred, test_data$Diabetes)
+print(conf_matrix)
+
+
+```
+
+**Hint:** A na'ıve Bayes classifier is provided in R by the`naive_Bayes()` function from the `discrim` package.
+
+#### (5 pts) Accuracy is
+
+```{r}
+
+#   Print accuracy
+accuracy <- sum(nb_pred == test_data$Diabetes) / nrow(test_data)
+cat("Naive Bayes Accuracy: ", round(accuracy, 4), "\n")
+
+
+```
+
+### (20 pts) Logistic Regression Classifier
+
+Apply `Logistic Regression classifier` for the `people` data to predict the Diabetes status.
+
+```{r}
+# Load required libraries
+library(caret)
+library(dplyr)
+
+# Clean the 'Diabetes' column
+people$Diabetes <- trimws(as.character(people$Diabetes))
+people <- people[people$Diabetes %in% c("Yes", "No", "1", "0"), ]
+people$Diabetes <- ifelse(people$Diabetes %in% c("Yes", "1"), "Yes", "No")
+people$Diabetes <- factor(people$Diabetes, levels = c("No", "Yes"))
+
+#  Remove missing values
+people <- na.omit(people)
+
+#  Split into training and testing sets (80/20)
+set.seed(123)
+split_index <- createDataPartition(people$Diabetes, p = 0.8, list = FALSE)
+train_data <- people[split_index, ]
+test_data  <- people[-split_index, ]
+
+# Encode categorical predictors as factors
+encode_factors <- function(df) {
+  df[] <- lapply(df, function(x) {
+    if (is.character(x)) as.factor(x) else x
+  })
+  return(df)
+}
+train_data <- encode_factors(train_data)
+test_data  <- encode_factors(test_data)
+
+#  Fit logistic regression model
+# We use glm (generalized linear model) with binomial family
+log_model <- glm(Diabetes ~ ., data = train_data, family = "binomial")
+
+#  Predict probabilities on test set
+prob_pred <- predict(log_model, newdata = test_data, type = "response")
+
+#  Convert probabilities to class predictions
+log_pred <- ifelse(prob_pred > 0.5, "Yes", "No")
+log_pred <- factor(log_pred, levels = c("No", "Yes"))
+
+# Evaluate performance with confusion matrix
+conf_matrix <- confusionMatrix(log_pred, test_data$Diabetes)
+print(conf_matrix)
+
+
+
+```
+
+#### (5 pts) Accuracy is
+
+```{r}
+
+#Show  the accuracy
+accuracy <- sum(log_pred == test_data$Diabetes) / nrow(test_data)
+cat("Logistic Regression Accuracy:", round(accuracy, 4), "\n")
+```
+
+#### (5 pts) Compare two of the two classifier using their accuracy.
+The accuracy difference is very small (0.07%), meaning both models perform almost equally well in predicting Diabetes status.
+Logistic regression has a slightly higher accuracy, but not enough to be considered significantly better without further analysis.
